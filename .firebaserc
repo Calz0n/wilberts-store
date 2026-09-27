@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "wilberts-store"
+  },
+  "targets": {
+    "wilberts-store": {
+      "hosting": {
+        "test": [
+          "wilberts-store-test"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
