@@ -21,7 +21,9 @@ class HomeView extends StatefulWidget {
 class _HomeViewState extends State<HomeView> {
   final ProductService _productService = ProductService();
   final PageController _featuredPageCtrl = PageController();
-  int _currentFeaturedPage = 0;
+  // Notifier para actualizar únicamente los indicadores sin reconstruir toda la vista
+  final ValueNotifier<int> _currentFeaturedNotifier = ValueNotifier<int>(0);
+  int _featuredCount = 0;
   Timer? _featuredTimer;
   int _secretAdminTaps = 0;
 
@@ -34,9 +36,10 @@ class _HomeViewState extends State<HomeView> {
   void _startFeaturedTimer() {
     _featuredTimer?.cancel();
     _featuredTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (_featuredPageCtrl.hasClients) {
+      if (_featuredPageCtrl.hasClients && _featuredCount > 1) {
+        // Avance continuo y suave hacia adelante sin rebobinar
         _featuredPageCtrl.nextPage(
-          duration: const Duration(milliseconds: 600),
+          duration: const Duration(milliseconds: 650),
           curve: Curves.easeInOutCubic,
         );
       }
@@ -47,6 +50,7 @@ class _HomeViewState extends State<HomeView> {
   void dispose() {
     _featuredTimer?.cancel();
     _featuredPageCtrl.dispose();
+    _currentFeaturedNotifier.dispose();
     super.dispose();
   }
 
@@ -70,7 +74,7 @@ class _HomeViewState extends State<HomeView> {
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
         elevation: 0,
-        automaticallyImplyLeading: false, // 1. Elimina la flecha de regreso en móvil
+        automaticallyImplyLeading: false,
         centerTitle: false,
         titleSpacing: isDesktop ? 20 : 10,
         toolbarHeight: isDesktop ? 68 : 58,
@@ -106,7 +110,6 @@ class _HomeViewState extends State<HomeView> {
           ),
         ),
         actions: [
-          // Botón de acceso directo al catálogo completo adaptado a móvil y escritorio
           TextButton(
             onPressed: () => Navigator.pushNamed(context, '/catalog'),
             style: TextButton.styleFrom(
@@ -175,7 +178,7 @@ class _HomeViewState extends State<HomeView> {
 
             const SizedBox(height: 36),
 
-            // Sección: Colección disponible (Solo playeras elegidas por el admin)
+            // Sección: Colección disponible
             Padding(
               padding: EdgeInsets.symmetric(horizontal: isDesktop ? 48 : 16),
               child: Center(
@@ -242,7 +245,6 @@ class _HomeViewState extends State<HomeView> {
                               ),
                               const SizedBox(height: 32),
 
-                              // Botón para acceder al catálogo completo
                               Center(
                                 child: OutlinedButton.icon(
                                   onPressed: () => Navigator.pushNamed(context, '/catalog'),
@@ -319,6 +321,7 @@ class _HomeViewState extends State<HomeView> {
         }
 
         final featuredList = snapshot.data!;
+        _featuredCount = featuredList.length;
         final cardHeight = isDesktop ? 380.0 : 360.0;
 
         return Center(
@@ -338,9 +341,12 @@ class _HomeViewState extends State<HomeView> {
                   children: [
                     PageView.builder(
                       controller: _featuredPageCtrl,
-                      itemCount: featuredList.length,
+                      // itemCount null permite avance continuo en bucle sin saltos
+                      itemCount: null,
                       onPageChanged: (idx) {
-                        setState(() => _currentFeaturedPage = idx % featuredList.length);
+                        if (_featuredCount > 0) {
+                          _currentFeaturedNotifier.value = idx % _featuredCount;
+                        }
                       },
                       itemBuilder: (context, index) {
                         final product = featuredList[index % featuredList.length];
@@ -425,76 +431,33 @@ class _HomeViewState extends State<HomeView> {
                         );
                       },
                     ),
-                    if (featuredList.length > 1)
-                      Positioned(
-                        left: 6,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: InkWell(
-                            onTap: () {
-                              _featuredPageCtrl.previousPage(
-                                duration: const Duration(milliseconds: 350),
-                                curve: Curves.easeInOut,
-                              );
-                            },
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.5),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.chevron_left, color: Colors.white70, size: 22),
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (featuredList.length > 1)
-                      Positioned(
-                        right: 6,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: InkWell(
-                            onTap: () {
-                              _featuredPageCtrl.nextPage(
-                                duration: const Duration(milliseconds: 350),
-                                curve: Curves.easeInOut,
-                              );
-                            },
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.5),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.chevron_right, color: Colors.white70, size: 22),
-                            ),
-                          ),
-                        ),
-                      ),
+
+                    // Indicadores inferiores aislados con ValueListenableBuilder
                     if (featuredList.length > 1)
                       Positioned(
                         bottom: 8,
                         left: 0,
                         right: 0,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: List.generate(
-                            featuredList.length,
-                                (i) => AnimatedContainer(
-                              duration: const Duration(milliseconds: 300),
-                              margin: const EdgeInsets.symmetric(horizontal: 3),
-                              width: _currentFeaturedPage == i ? 18 : 6,
-                              height: 3,
-                              decoration: BoxDecoration(
-                                color: _currentFeaturedPage == i ? Colors.white : Colors.white24,
-                                borderRadius: BorderRadius.circular(2),
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: _currentFeaturedNotifier,
+                          builder: (context, activePage, _) {
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: List.generate(
+                                featuredList.length,
+                                    (i) => AnimatedContainer(
+                                  duration: const Duration(milliseconds: 300),
+                                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                                  width: activePage == i ? 18 : 6,
+                                  height: 3,
+                                  decoration: BoxDecoration(
+                                    color: activePage == i ? Colors.white : Colors.white24,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       ),
                   ],

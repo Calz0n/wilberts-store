@@ -25,25 +25,101 @@ class _AdminDashboardViewState extends State<AdminDashboardView> {
 
   void _pickAndUploadPhotoBase64(String productId) {
     try {
-      final uploadInput = html.FileUploadInputElement()..accept = 'image/*';
-      uploadInput.click();
+      final uploadInput = html.FileUploadInputElement()
+        ..accept = 'image/*'
+        ..style.display = 'none';
+
+      // Ancla temporalmente el input al DOM para que navegadores móviles (Android/iOS) no pierdan el evento al abrir la cámara/galería
+      html.document.body?.append(uploadInput);
 
       uploadInput.onChange.listen((e) {
         final files = uploadInput.files;
         if (files != null && files.isNotEmpty) {
           final file = files[0];
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Comprimiendo y guardando foto...'),
+              backgroundColor: Color(0xFF1E1E1E),
+              duration: Duration(seconds: 2),
+            ),
+          );
+
           final reader = html.FileReader();
           reader.readAsDataUrl(file);
           reader.onLoadEnd.listen((event) {
+            uploadInput.remove(); // Limpieza del elemento en el DOM
             if (reader.result != null) {
-              final base64String = reader.result as String;
-              _productService.addPhoto(productId, base64String);
+              final rawDataUrl = reader.result as String;
+
+              // Compresión ultraligera (30KB-50KB) para que quepan las 5 fotos en Firestore sin exceder nunca 1 MB
+              _compressImage(rawDataUrl, (compressedBase64) async {
+                try {
+                  await _productService.addPhoto(productId, compressedBase64);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('✓ Foto guardada con éxito'),
+                        backgroundColor: Colors.green,
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                } catch (err) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error al guardar foto: $err'),
+                        backgroundColor: Colors.redAccent,
+                      ),
+                    );
+                  }
+                }
+              });
             }
           });
+        } else {
+          uploadInput.remove();
         }
       });
+
+      uploadInput.click();
     } catch (_) {
       _showAddPhotoUrlDialog(productId);
+    }
+  }
+
+  void _compressImage(String dataUrl, void Function(String compressed) callback) {
+    try {
+      final img = html.ImageElement();
+      img.src = dataUrl;
+      img.onLoad.listen((_) {
+        int width = img.naturalWidth ?? img.width ?? 650;
+        int height = img.naturalHeight ?? img.height ?? 650;
+
+        // Limita a máximo 650px (resolución ideal para móvil y catálogo rápido)
+        const int maxDim = 650;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = (height * maxDim / width).round();
+            width = maxDim;
+          } else {
+            width = (width * maxDim / height).round();
+            height = maxDim;
+          }
+        }
+
+        final canvas = html.CanvasElement(width: width, height: height);
+        final ctx = canvas.context2D;
+        ctx.drawImageScaled(img, 0, 0, width, height);
+
+        // Comprime a JPEG calidad 60% (pesa solo ~35KB a 50KB por foto)
+        final compressedDataUrl = canvas.toDataUrl('image/jpeg', 0.60);
+        callback(compressedDataUrl);
+      });
+      img.onError.listen((_) => callback(dataUrl));
+    } catch (_) {
+      callback(dataUrl);
     }
   }
 

@@ -16,6 +16,9 @@ class SmartProductImage extends StatelessWidget {
     this.height,
   });
 
+  // Caché en memoria: evita re-decodificar Base64 en cada cuadro de animación
+  static final Map<int, Uint8List> _bytesCache = {};
+
   @override
   Widget build(BuildContext context) {
     if (imageSource.trim().isEmpty) {
@@ -25,8 +28,17 @@ class SmartProductImage extends StatelessWidget {
     // Caso 1: Imagen en Base64 (Data URI o cadena pura)
     if (imageSource.startsWith('data:image') || (!imageSource.startsWith('http') && !imageSource.startsWith('assets/'))) {
       try {
-        final pureBase64 = imageSource.contains(',') ? imageSource.split(',').last : imageSource;
-        final Uint8List bytes = base64Decode(pureBase64.trim());
+        final key = imageSource.hashCode;
+        Uint8List? bytes = _bytesCache[key];
+        if (bytes == null) {
+          final pureBase64 = imageSource.contains(',') ? imageSource.split(',').last : imageSource;
+          bytes = base64Decode(pureBase64.trim());
+          if (_bytesCache.length > 60) {
+            _bytesCache.clear(); // Protege la memoria RAM si hay muchas fotos
+          }
+          _bytesCache[key] = bytes;
+        }
+
         return Image.memory(
           bytes,
           fit: fit,
